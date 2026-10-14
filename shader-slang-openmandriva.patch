@@ -1,0 +1,162 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -631,6 +631,9 @@
+ 
+ if(${SLANG_USE_SYSTEM_SPIRV_TOOLS})
+     find_package(SPIRV-Tools REQUIRED)
++    # Split out of the core SPIRV-Tools cmake package.
++    find_package(SPIRV-Tools-opt REQUIRED)
++    find_package(SPIRV-Tools-link REQUIRED)
+ endif()
+ 
+ if(${SLANG_USE_SYSTEM_GLSLANG})
+@@ -638,6 +641,10 @@
+     if(NOT TARGET glslang)
+         add_library(glslang ALIAS glslang::glslang)
+     endif()
++    # slang-glslang links the un-namespaced SPIRV target.
++    if(NOT TARGET SPIRV AND TARGET glslang::SPIRV)
++        add_library(SPIRV ALIAS glslang::SPIRV)
++    endif()
+ endif()
+ 
+ if(SLANG_ENABLE_DXIL)
+@@ -728,7 +735,7 @@
+ # submodule -- not a system copy or an override path -- is the source we build
+ # against; a missing notice file then fails the install loudly rather than
+ # silently shipping a non-compliant package.
+-if(NOT SLANG_OVERRIDE_CMARK_PATH)
++if(NOT SLANG_OVERRIDE_CMARK_PATH AND NOT SLANG_USE_SYSTEM_CMARK)
+     install(
+         FILES "${slang_SOURCE_DIR}/external/cmark/COPYING"
+         DESTINATION third-party-notices
+@@ -826,11 +833,6 @@
+ endif()
+ 
+ install(
+-    DIRECTORY "${slang_SOURCE_DIR}/docs/"
+-    DESTINATION share/doc/slang
+-    PATTERN ".*" EXCLUDE
+-)
+-install(
+     DIRECTORY "${slang_SOURCE_DIR}/include"
+     DESTINATION .
+     PATTERN ".*" EXCLUDE
+@@ -900,11 +902,9 @@
+             @ONLY
+         )
+ 
+-        # TODO: When build system is changed to respect CMAKE_INSTALL_LIBDIR,
+-        # update this destination.
+         install(
+             FILES "${PROJECT_BINARY_DIR}/slang-compiler.pc"
+-            DESTINATION "lib/pkgconfig"
++            DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig"
+         )
+     endif()
+ endif()
+--- a/external/CMakeLists.txt
++++ b/external/CMakeLists.txt
+@@ -123,24 +123,39 @@
+ endif()
+ 
+ # cmark-gfm (CommonMark / GFM Markdown parser, swiftlang fork)
+-set(CMARK_LIB_FUZZER OFF)
+-set(CMARK_FUZZ_QUADRATIC OFF)
+-set(_prev_BUILD_TESTING ${BUILD_TESTING})
+-set(_prev_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
+-set(BUILD_TESTING OFF)
+-set(BUILD_SHARED_LIBS OFF)
+-if(NOT SLANG_OVERRIDE_CMARK_PATH)
+-    add_subdirectory(cmark EXCLUDE_FROM_ALL ${system})
+-else()
+-    add_subdirectory(
+-        ${SLANG_OVERRIDE_CMARK_PATH}/cmark
+-        cmark
+-        EXCLUDE_FROM_ALL
+-        ${system}
++if(SLANG_USE_SYSTEM_CMARK)
++    find_package(PkgConfig REQUIRED)
++    pkg_check_modules(CMARK_GFM REQUIRED libcmark-gfm)
++    find_library(
++        CMARK_GFM_LIBRARY
++        NAMES cmark-gfm
++        PATHS ${CMARK_GFM_LIBRARY_DIRS}
++        REQUIRED
+     )
++    # An imported target named libcmark-gfm is linked as -llibcmark-gfm.
++    # Pass the absolute library path through instead.
++    set(SLANG_CMARK_LIBRARY "${CMARK_GFM_LIBRARY}" PARENT_SCOPE)
++else()
++    set(CMARK_LIB_FUZZER OFF)
++    set(CMARK_FUZZ_QUADRATIC OFF)
++    set(_prev_BUILD_TESTING ${BUILD_TESTING})
++    set(_prev_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
++    set(BUILD_TESTING OFF)
++    set(BUILD_SHARED_LIBS OFF)
++    if(NOT SLANG_OVERRIDE_CMARK_PATH)
++        add_subdirectory(cmark EXCLUDE_FROM_ALL ${system})
++    else()
++        add_subdirectory(
++            ${SLANG_OVERRIDE_CMARK_PATH}/cmark
++            cmark
++            EXCLUDE_FROM_ALL
++            ${system}
++        )
++    endif()
++    set(BUILD_TESTING ${_prev_BUILD_TESTING})
++    set(BUILD_SHARED_LIBS ${_prev_BUILD_SHARED_LIBS})
++    set(SLANG_CMARK_LIBRARY libcmark-gfm PARENT_SCOPE)
+ endif()
+-set(BUILD_TESTING ${_prev_BUILD_TESTING})
+-set(BUILD_SHARED_LIBS ${_prev_BUILD_SHARED_LIBS})
+ 
+ # Vulkan headers
+ if(NOT TARGET Vulkan::Headers)
+--- a/source/slang/CMakeLists.txt
++++ b/source/slang/CMakeLists.txt
+@@ -277,7 +277,7 @@
+     slang-fiddle-output
+     slang-lookup-tables
+     SPIRV-Headers::SPIRV-Headers
+-    libcmark-gfm
++    ${SLANG_CMARK_LIBRARY}
+ )
+ set(slang_interface_args INCLUDE_DIRECTORIES_PUBLIC ${slang_SOURCE_DIR}/include)
+ set(slang_public_lib_args
+--- a/cmake/SlangTarget.cmake
++++ b/cmake/SlangTarget.cmake
+@@ -723,7 +723,8 @@
+ # Linux systems) relies on runtime libraries being at "$ORIGIN/../lib". This
+ # could be improved by setting at configure-time that path to be the relative
+ # path from CM_I_RD to CM_I_LD.
+-set(library_subdir lib)
++include(GNUInstallDirs)
++set(library_subdir ${CMAKE_INSTALL_LIBDIR})
+ set(runtime_subdir bin)
+ 
+ # On Windows, because there's no RPATH, place modules in bin, next to the
+--- a/source/standard-modules/CMakeLists.txt
++++ b/source/standard-modules/CMakeLists.txt
+@@ -19,7 +19,8 @@
+ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+     set(slang_library_dir "bin")
+ else()
+-    set(slang_library_dir "lib")
++    include(GNUInstallDirs)
++    set(slang_library_dir "${CMAKE_INSTALL_LIBDIR}")
+ endif()
+ 
+ # Set install directory using the platform-specific library directory
+--- a/extras/pkgconfig/slang-compiler.pc.in
++++ b/extras/pkgconfig/slang-compiler.pc.in
+@@ -1,7 +1,7 @@
+ prefix=${pcfiledir}/../..
+ exec_prefix=${prefix}
+-libdir=${prefix}/lib
+-includedir=${prefix}/include
++libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
++includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+ 
+ Name: slang-compiler
+ Description: Slang shading language compiler library
