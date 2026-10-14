@@ -53,6 +53,11 @@ BuildOption:	-DSLANG_ENABLE_CUDA=OFF
 BuildOption:	-DSLANG_ENABLE_OPTIX=OFF
 BuildOption:	-DSLANG_ENABLE_NVAPI=OFF
 BuildOption:	-DSLANG_ENABLE_AFTERMATH=OFF
+# OpenMandriva cmake turns RPATH off. slang-bootstrap runs from the build
+# tree and has to find the compiler library next to it. Turn build RPATH
+# back on, and still omit RPATH from the installed files.
+BuildOption:	-DCMAKE_SKIP_RPATH:BOOL=OFF
+BuildOption:	-DCMAKE_SKIP_INSTALL_RPATH:BOOL=ON
 
 %description
 Slang is a shading language compiler for GPU programs. This package
