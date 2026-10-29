@@ -160,3 +160,28 @@
  
  Name: slang-compiler
  Description: Slang shading language compiler library
+--- a/source/slang-glslang/CMakeLists.txt
++++ b/source/slang-glslang/CMakeLists.txt
+@@ -16,7 +16,21 @@
+         # allocator is thread-local), and shared inputs such as the resource-limit
+         # table are read-only.
+         SKIP_SANITIZERS
+-        LINK_WITH_PRIVATE glslang SPIRV SPIRV-Tools-opt SPIRV-Tools-link
++        # libglslang.so exports an older SPIRV-Tools C API. Create() there
++        # allocates a 0x3c-byte spv_optimizer_options_t and stores the id
++        # bound at +0x34. SPIRV-Tools-opt reads max_id_bound at +0x54.
++        # Those calls were left undefined and bound to libglslang, so
++        # slangc -O1/-O2 failed with "ID overflow" on valid SPIR-V.
++        # Pull the matching static libraries in first and keep them in a
++        # rescan group so the optimizer and its C API are one ABI.
++        LINK_WITH_PRIVATE
++            "-Wl,--start-group"
++            SPIRV-Tools
++            SPIRV-Tools-opt
++            SPIRV-Tools-link
++            "-Wl,--end-group"
++            SPIRV
++            glslang
+         INCLUDE_DIRECTORIES_PRIVATE
+             ${slang_SOURCE_DIR}/include
+             ${CMAKE_CURRENT_BINARY_DIR}/../slang/slang-version-header

@@ -5,7 +5,7 @@
 Summary:	Slang shading language compiler
 Name:		shader-slang
 Version:	2026.18.3
-Release:	1
+Release:	2
 License:	Apache-2.0 WITH LLVM-exception AND MIT
 Group:		Development/Other
 URL:		https://github.com/shader-slang/slang
@@ -24,6 +24,7 @@ BuildRequires:	cmake(FastFloat) >= 8.2
 BuildRequires:	cmake(SPIRV-Headers)
 BuildRequires:	cmake(VulkanHeaders)
 BuildRequires:	cmake(glslang)
+BuildRequires:	cmake(SPIRV-Tools)
 BuildRequires:	cmake(SPIRV-Tools-opt)
 BuildRequires:	cmake(SPIRV-Tools-link)
 
